@@ -62,7 +62,6 @@ with tab1:
     if run_live:
         while run_live:
             try:
-                # إضافة headers لمنع التخزين المؤقت (Caching) وإجبار التحديث
                 headers = {'Cache-Control': 'no-cache', 'Pragma': 'no-cache'}
                 response = requests.get(THINGSPEAK_URL, headers=headers, timeout=5)
                 data = response.json()
@@ -70,7 +69,6 @@ with tab1:
                 if 'feeds' in data and len(data['feeds']) > 0:
                     latest_feed = data['feeds'][0]
                     
-                    # قراءة القيم بشكل آمن وتفادي القيم الفارغة
                     acc_x = float(latest_feed.get('field1') or 0.0)
                     acc_y = float(latest_feed.get('field2') or 0.0)
                     acc_z = float(latest_feed.get('field3') or 0.0)
@@ -78,12 +76,21 @@ with tab1:
                     gyro_y = float(latest_feed.get('field5') or 0.0)
                     gyro_z = float(latest_feed.get('field6') or 0.0)
                     
-                    # معالجة حقل النبض
                     bpm_str = latest_feed.get('field7')
                     bpm = int(float(bpm_str)) if bpm_str else 0
                     
-                    features = pd.DataFrame([[acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]], 
-                                            columns=sensor_cols)
+                    # === التعديل السحري لحل مشكلة الـ 24 عمود ===
+                    temp_data = pd.DataFrame([[acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]], 
+                                             columns=['acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z'])
+                    
+                    # تعبئة الأعمدة الناقصة بأصفار حتى يكتمل العدد إلى 24 كما يطلبه النموذج
+                    for col in sensor_cols:
+                        if col not in temp_data.columns:
+                            temp_data[col] = 0.0
+                            
+                    # ترتيب الأعمدة بنفس ترتيب النموذج بالضبط
+                    features = temp_data[sensor_cols]
+                    # ============================================
                     
                     prediction = model.predict(features)[0]
                     
