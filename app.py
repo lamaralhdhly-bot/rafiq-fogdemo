@@ -98,3 +98,68 @@ if uploaded_file is not None:
         st.error(f"حدث خطأ أثناء المعالجة: {e}")
 else:
     st.info("في انتظار رفع ملف البيانات...")
+import streamlit as st
+import pandas as pd
+import requests
+import time
+import joblib
+
+st.set_page_config(page_title="رفيق | Rafiq", page_icon="📈", layout="wide")
+
+st.title("نظام رفيق لمتابعة مرضى الباركنسون")
+
+# تحميل النموذج
+model = joblib.load("fog_model.joblib")
+
+# إنشاء تبويبات (Tabs) للتنقل بين الصفحتين
+tab1, tab2 = st.tabs(["🔴 المراقبة الحية (Live IoT)", "📁 مراجعة السجلات (ملفات CSV)"])
+
+# ==========================================
+# التبويب الأول: المراقبة الحية (الكود الجديد)
+# ==========================================
+with tab1:
+    st.header("الاتصال المباشر بالسوار الذكي")
+    CHANNEL_ID = "3539820"
+    READ_API_KEY = "YDMYLPQD1HEO76JB"
+    THINGSPEAK_URL = f"https://api.thingspeak.com/channels/{CHANNEL_ID}/feeds.json?api_key={READ_API_KEY}&results=1"
+
+    run_live = st.checkbox("بدء الاتصال المباشر 📡")
+    placeholder = st.empty()
+
+    if run_live:
+        while run_live:
+            try:
+                response = requests.get(THINGSPEAK_URL)
+                data = response.json()
+                latest_feed = data['feeds'][0]
+                
+                acc_x, acc_y, acc_z = float(latest_feed['field1']), float(latest_feed['field2']), float(latest_feed['field3'])
+                gyro_x, gyro_y, gyro_z = float(latest_feed['field4']), float(latest_feed['field5']), float(latest_feed['field6'])
+                bpm = int(float(latest_feed['field7']))
+                
+                features = pd.DataFrame([[acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]], 
+                                        columns=['acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z'])
+                
+                prediction = model.predict(features)[0]
+                
+                with placeholder.container():
+                    st.write(f"آخر تحديث: {latest_feed['created_at']}")
+                    col1, col2 = st.columns(2)
+                    col1.metric("معدل النبض ❤️", f"{bpm} BPM")
+                    if prediction == 1:
+                        col2.error("⚠️ تنبيه: تم رصد تجمد (FoG)!")
+                    else:
+                        col2.success("الحركة طبيعية ✅")
+                        
+            except Exception as e:
+                with placeholder.container():
+                    st.info("جاري انتظار البيانات من السوار...")
+            time.sleep(2)
+
+# ==========================================
+# التبويب الثاني: رفع الملفات (كودك القديم)
+# ==========================================
+with tab2:
+    st.header("تحليل البيانات المسجلة")
+    # 🔴 هنا ألصقي كودك القديم الخاص برفع الملف (st.file_uploader) والرسم البياني
+    # ...
