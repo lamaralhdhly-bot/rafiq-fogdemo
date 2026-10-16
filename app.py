@@ -91,10 +91,7 @@ if uploaded_file is not None:
                 "وليست تنبيهات طبية أو اكتشافًا مباشرًا من ساعة."
             )
 
-    except Exception:
-        st.error(
-            "تعذر تحليل الملف. تحققي من صيغة CSV وأعمدة البيانات."
-        )
-
+    except Exception as e:
+        st.error(f"تفاصيل الخطأ: {type(e).__name__}: {e}")
 else:
     st.info("ارفعي ملف بيانات الحركة لبدء الاختبار.")
