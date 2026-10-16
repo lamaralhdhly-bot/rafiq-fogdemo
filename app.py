@@ -1,59 +1,100 @@
 import streamlit as st
-from datetime import datetime
+import joblib
+import pandas as pd
+import numpy as np
+from pathlib import Path
 
 st.set_page_config(
-    page_title="رفيق | متابعة المشي",
+    page_title="رفيق | متابعة الحركة",
     page_icon="💙",
     layout="centered"
 )
 
-st.markdown("""
-<style>
-.stApp {
-    background-color: #101820;
-    color: #F4F7FA;
-}
-h1, h2, h3, p, label {
-    color: #F4F7FA !important;
-}
-div.stButton > button {
-    width: 100%;
-    border-radius: 12px;
-    min-height: 45px;
-}
-</style>
-""", unsafe_allow_html=True)
-
 st.title("💙 رفيق")
-st.caption("نظام تجريبي لمتابعة الحركة وتنبيه المرافق")
+st.caption("نموذج بحثي تجريبي لمتابعة الحركة")
+
+MODEL_PATH = Path(__file__).parent / "fog_model.joblib"
+
+@st.cache_resource
+def load_model():
+    package = joblib.load(MODEL_PATH)
+    return package["model"], package["sensor_cols"]
+
+try:
+    model, sensor_cols = load_model()
+    st.success("تم تحميل النموذج بنجاح")
+except Exception as e:
+    st.error("تعذر تحميل النموذج. تحققي من ملف النموذج والمكتبات.")
+    st.stop()
 
 st.divider()
+st.subheader("اختبار النموذج")
 
-st.subheader("حالة المتابعة")
-st.info("هذه واجهة تجريبية — لم يتم الاتصال بساعة فعلية.")
-
-st.metric("حالة اتصال السوار", "غير متصل")
-st.caption("آخر تحديث: " + datetime.now().strftime("%H:%M"))
-
-st.divider()
-
-st.subheader("تجربة التنبيه")
 st.write(
-    "استخدمي الزر لمحاكاة تنبيه فقط. "
-    "هذا لا يعني أن النظام اكتشف حالة حقيقية."
+    "ارفعي ملف CSV يحتوي على أعمدة مستشعرات الحركة "
+    "المستخدمة في تدريب النموذج."
 )
 
-if st.button("🔔 تجربة تنبيه للمرافق"):
-    st.warning(
-        "تنبيه تجريبي: يُرجى التحقق من حالة المريض "
-        "والتواصل معه عند الحاجة."
-    )
+uploaded_file = st.file_uploader(
+    "اختاري ملف بيانات الحركة CSV",
+    type=["csv"]
+)
+
+if uploaded_file is not None:
+    try:
+        data = pd.read_csv(uploaded_file)
+
+        missing = [c for c in sensor_cols if c not in data.columns]
+
+        if missing:
+            st.error(
+                "الملف لا يحتوي على جميع أعمدة المستشعرات المطلوبة."
+            )
+            st.write("الأعمدة الناقصة:", missing)
+        else:
+            X = data[sensor_cols].replace(
+                [np.inf, -np.inf], np.nan
+            )
+
+            probabilities = model.predict_proba(X)[:, 1]
+            threshold = st.slider(
+                "عتبة التنبؤ التجريبية",
+                min_value=0.1,
+                max_value=0.9,
+                value=0.5,
+                step=0.05
+            )
+
+            predictions = (probabilities >= threshold).astype(int)
+
+            st.metric("عدد الصفوف المفحوصة", len(data))
+            st.metric(
+                "الصفوف التي صنّفها النموذج إيجابية",
+                int(predictions.sum())
+            )
+
+            results = data.copy()
+            results["fog_probability"] = probabilities
+            results["predicted_fog"] = predictions
+
+            st.dataframe(results.head(100))
+
+            st.download_button(
+                "تنزيل نتائج الاختبار",
+                results.to_csv(index=False).encode("utf-8"),
+                file_name="rafiq_test_results.csv",
+                mime="text/csv"
+            )
+
+            st.warning(
+                "هذه نتائج بحثية تجريبية على بيانات مسجّلة، "
+                "وليست تنبيهات طبية أو اكتشافًا مباشرًا من ساعة."
+            )
+
+    except Exception:
+        st.error(
+            "تعذر تحليل الملف. تحققي من صيغة CSV وأعمدة البيانات."
+        )
+
 else:
-    st.success("لا توجد تنبيهات تجريبية نشطة.")
-
-st.divider()
-
-st.caption(
-    "هذا نموذج أولي بحثي وليس جهازًا طبيًا. "
-    "لم يُربط بعد بنموذج التنبؤ أو بمستشعر حركة حقيقي."
-)
+    st.info("ارفعي ملف بيانات الحركة لبدء الاختبار.")
