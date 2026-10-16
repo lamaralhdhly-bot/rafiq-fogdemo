@@ -18,8 +18,16 @@ MODEL_PATH = Path(__file__).parent / "fog_model.joblib"
 @st.cache_resource
 def load_model():
     package = joblib.load(MODEL_PATH)
-    return package["model"], package["sensor_cols"]
 
+    model = package["model"]
+    sensor_cols = package["sensor_cols"]
+
+    # إصلاح توافق SimpleImputer عند تحميل النموذج المحفوظ
+    for step_name, step in model.steps:
+        if hasattr(step, "statistics_") and not hasattr(step, "_fill_dtype"):
+            step._fill_dtype = step.statistics_.dtype
+
+    return model, sensor_cols
 try:
     model, sensor_cols = load_model()
     st.success("تم تحميل النموذج بنجاح")
