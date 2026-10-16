@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 # ==========================================
-# 1. إعدادات الصفحة (تُكتب مرة واحدة فقط)
+# 1. إعدادات الصفحة
 # ==========================================
 st.set_page_config(
     page_title="رفيق | Rafiq - متابعة الحركة",
@@ -15,15 +15,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# واجهة رفيق
 st.title("💙 رفيق | Rafiq")
 st.caption("نموذج بحثي أولي لمتابعة اضطرابات الحركة (Freezing of Gait) لمريض باركنسون")
 
-# تحديث رسالة النظام
 st.info("💡 **حالة النظام:** التطبيق يدعم الآن المراقبة الحية عبر السوار الذكي (IoT) بالإضافة إلى تحليل السجلات السابقة.")
 
 # ==========================================
-# 2. تحميل نموذج الذكاء الاصطناعي
+# 2. تحميل النموذج
 # ==========================================
 MODEL_PATH = Path(__file__).parent / "fog_model.joblib"
 
@@ -44,12 +42,12 @@ except Exception as e:
 st.divider()
 
 # ==========================================
-# 3. واجهة التبويبات (Tabs)
+# 3. واجهة التبويبات
 # ==========================================
 tab1, tab2 = st.tabs(["🔴 المراقبة الحية (Live IoT)", "📁 تحليل السجلات (ملفات CSV)"])
 
 # ------------------------------------------
-# التبويب الأول: المراقبة الحية (ThingSpeak)
+# التبويب الأول: المراقبة الحية
 # ------------------------------------------
 with tab1:
     st.subheader("الاتصال المباشر بالسوار الذكي 📡")
@@ -64,19 +62,28 @@ with tab1:
     if run_live:
         while run_live:
             try:
-                response = requests.get(THINGSPEAK_URL)
+                # إضافة headers لمنع التخزين المؤقت (Caching) وإجبار التحديث
+                headers = {'Cache-Control': 'no-cache', 'Pragma': 'no-cache'}
+                response = requests.get(THINGSPEAK_URL, headers=headers, timeout=5)
                 data = response.json()
                 
                 if 'feeds' in data and len(data['feeds']) > 0:
                     latest_feed = data['feeds'][0]
                     
-                    acc_x, acc_y, acc_z = float(latest_feed['field1']), float(latest_feed['field2']), float(latest_feed['field3'])
-                    gyro_x, gyro_y, gyro_z = float(latest_feed['field4']), float(latest_feed['field5']), float(latest_feed['field6'])
-                    bpm = int(float(latest_feed['field7']))
+                    # قراءة القيم بشكل آمن وتفادي القيم الفارغة
+                    acc_x = float(latest_feed.get('field1') or 0.0)
+                    acc_y = float(latest_feed.get('field2') or 0.0)
+                    acc_z = float(latest_feed.get('field3') or 0.0)
+                    gyro_x = float(latest_feed.get('field4') or 0.0)
+                    gyro_y = float(latest_feed.get('field5') or 0.0)
+                    gyro_z = float(latest_feed.get('field6') or 0.0)
                     
-                    # تجهيز البيانات للنموذج
+                    # معالجة حقل النبض
+                    bpm_str = latest_feed.get('field7')
+                    bpm = int(float(bpm_str)) if bpm_str else 0
+                    
                     features = pd.DataFrame([[acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]], 
-                                            columns=['acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z'])
+                                            columns=sensor_cols)
                     
                     prediction = model.predict(features)[0]
                     
@@ -95,11 +102,12 @@ with tab1:
                         
             except Exception as e:
                 with placeholder.container():
-                    st.info("جاري انتظار البيانات من السوار...")
+                    st.error(f"توقف العرض بسبب خطأ تقني: {e}")
+            
             time.sleep(2)
 
 # ------------------------------------------
-# التبويب الثاني: مراجعة السجلات (كودك الأصلي)
+# التبويب الثاني: تحليل السجلات
 # ------------------------------------------
 with tab2:
     st.subheader("تحليل قراءات الحركة المسجلة 📊")
@@ -113,7 +121,7 @@ with tab2:
             missing = [c for c in sensor_cols if c not in data.columns]
 
             if missing:
-                st.error("الملف المرفوع لا يحتوي على جميع أعمدة المستشعرات المطلوبة.")
+                st.error(f"الملف المرفوع تنقصه الأعمدة التالية: {missing}")
             else:
                 X = data[sensor_cols].replace([np.inf, -np.inf], np.nan)
                 probabilities = model.predict_proba(X)[:, 1]
@@ -128,7 +136,6 @@ with tab2:
                 predictions = (probabilities >= threshold).astype(int)
                 fog_detected = int(predictions.sum())
 
-                # عرض المؤشرات البصرية
                 st.markdown("### حالة المريض الحالية 📋")
                 col1, col2 = st.columns(2)
                 col1.metric("إجمالي القراءات المفحوصة", f"{len(data)}")
@@ -144,13 +151,11 @@ with tab2:
                 results["fog_probability"] = probabilities
                 results["predicted_fog"] = predictions
 
-                # إضافة الرسم البياني التفاعلي
                 st.markdown("### التدرج الزمني لاحتمالية التجمد 📈")
                 st.write("يوضح الرسم متى اقتربت حالة المريض من التجمد (كلما ارتفع الخط زادت الاحتمالية).")
                 chart_data = pd.DataFrame(probabilities, columns=["احتمالية التجمد"])
                 st.line_chart(chart_data, color="#1f77b4")
 
-                # إخفاء التفاصيل التقنية في قائمة قابلة للطي
                 with st.expander("عرض البيانات التقنية المفصلة (للباحثين) 🔍"):
                     st.dataframe(results[["predicted_fog", "fog_probability"] + sensor_cols].head(100), use_container_width=True)
 
